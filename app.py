@@ -1526,7 +1526,7 @@ def render_login_page():
                         if sucesso: st.success(mensagem)
                         else: st.error(mensagem)
     with col2:
-        st.image("assets/login_page/image2.png", use_container_width=True)
+        st.image("assets/login_page/image4.png", use_container_width=True)
 
 def render_estoque_materiais_page():
     # --- Inicialização de Estado da Página ---
