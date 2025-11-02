@@ -1853,7 +1853,8 @@ def render_prazos_compra_page():
                 
                 # Se a ação "Remover?" foi marcada como "Sim"
                 if changes.get("Ação") == "Sim":
-                    ids_para_remover.append(prazo_id)
+                    # Converte o ID para um int padrão do Python antes de adicionar
+                    ids_para_remover.append(int(prazo_id)) # <-- CORREÇÃO AQUI
 
             if ids_para_remover:
                 for prazo_id in ids_para_remover:
