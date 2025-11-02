@@ -1,0 +1,9 @@
+# Ambiente virtual
+venv/
+
+# Arquivo de segredos locais
+.streamlit/secrets.toml
+
+# Arquivos de cache do Python
+__pycache__/
+*.pyc
