@@ -2538,7 +2538,6 @@ def render_planejamento_page():
             else:
                 st.error(relatorio, icon="🚨")
 
-    st.markdown("---")
     st.info("""
         **Atenção:** Verifique se a coluna 'Id_exclusiva' existe em seu MSProject antes de exportar para Excel.
         Caso não, é simples. No MS Project:
@@ -2548,6 +2547,8 @@ def render_planejamento_page():
         4. Exporte o arquivo para Excel novamente.
         """)
     
+    st.markdown("---")
+
     # --- SEÇÃO 2: VINCULAR KIT EM LOTE (NOVO LAYOUT) ---
     st.subheader("Vincular Kit a Múltiplas Tarefas (em Lote)")
 
