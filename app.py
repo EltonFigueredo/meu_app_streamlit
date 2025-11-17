@@ -45,32 +45,49 @@ st.set_page_config(layout="wide")
 
 #region Funções de Conexão e Autenticação
 
-# SUBSTITUA AS SUAS DUAS FUNÇÕES DE CONEXÃO POR ESTAS TRÊS:
+@st.cache_resource(ttl=600) # Cache dura 10 minutos ou até invalidar
+def _get_cached_connection():
+    """Cria a conexão física e a mantém em cache."""
+    return mysql.connector.connect(
+        host=st.secrets["db"]["host"],
+        user=st.secrets["db"]["user"],
+        password=st.secrets["db"]["password"],
+        database=st.secrets["db"]["database"],
+        port=st.secrets["db"]["port"]
+    )
 
-def obter_conexao_db():
-    """Função unificada para obter conexão, lendo dos segredos."""
-    try:
-        return mysql.connector.connect(
-            host=st.secrets["db"]["host"],
-            user=st.secrets["db"]["user"],
-            password=st.secrets["db"]["password"],
-            database=st.secrets["db"]["database"],
-            port=st.secrets["db"]["port"]
-        )
-    except Error as err:
-        # Mostra um erro mais detalhado se a conexão falhar
-        st.error(f"Erro de conexão com o banco de dados na nuvem: {err}")
-        return None
-
-# Função de leitura (agora sem cache, como decidimos)
 def conectar_mysql_leitura():
-    """CONEXÃO PARA LEITURA: Obtém uma conexão nova."""
-    return obter_conexao_db()
+    """
+    Tenta usar a conexão cacheada. Se ela caiu, recria.
+    Essa é a mágica para performance + estabilidade.
+    """
+    try:
+        cnx = _get_cached_connection()
+        # Faz um teste leve (ping) para ver se a conexão ainda está viva
+        if not cnx.is_connected():
+            st.cache_resource.clear() # Limpa o cache velho
+            cnx = _get_cached_connection() # Cria nova
+            
+        # Um teste extra garantido (ping do MySQL)
+        cnx.ping(reconnect=True, attempts=3, delay=1)
+        return cnx
+    except Error:
+        # Se der erro grave, força limpeza total e nova tentativa
+        st.cache_resource.clear()
+        return _get_cached_connection()
 
-# Função de escrita (agora usa a função unificada)
+# A função de escrita continua criando uma nova por segurança, 
+# mas como é usada menos vezes, não impacta tanto a navegação.
 def obter_conexao_para_transacao():
-    """CONEXÃO PARA ESCRITA: Obtém uma conexão nova."""
-    return obter_conexao_db()
+    """CONEXÃO PARA ESCRITA: Obtém uma conexão nova (sem cache)."""
+    # Reutilizamos a lógica de criar conexão, mas sem passar pelo cache_resource direto
+    return mysql.connector.connect(
+        host=st.secrets["db"]["host"],
+        user=st.secrets["db"]["user"],
+        password=st.secrets["db"]["password"],
+        database=st.secrets["db"]["database"],
+        port=st.secrets["db"]["port"]
+    )
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -617,7 +634,7 @@ def verificar_e_gerar_notificacoes_compra(obra_id, antecedencia_seguranca_dias=6
     finally:
         if conexao.is_connected(): conexao.close()
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def buscar_notificacoes_compra_db(obra_id):
     """Busca as notificações de COMPRA pendentes para uma obra."""
     conexao = conectar_mysql_leitura()
@@ -1030,6 +1047,7 @@ def calcular_balanco_emprestimos_db(obra_id):
 
 #region Funções de Lógica de Negócio (Banco de Dados - Kits)
 
+@st.cache_data(ttl=60)
 def buscar_kits_da_obra_db(obra_id):
     """Busca todos os kits de uma obra específica."""
     conexao = conectar_mysql_leitura()
@@ -1250,7 +1268,7 @@ def ler_e_salvar_tarefas_excel(uploaded_file, obra_id):
     finally:
         if 'conexao' in locals() and conexao.is_connected(): conexao.close()
 
-
+@st.cache_data(ttl=60)
 def buscar_tarefas_db(obra_id):
     """Busca todas as tarefas de um planejamento para uma obra específica."""
     conexao = conectar_mysql_leitura()
@@ -1279,6 +1297,7 @@ def buscar_tarefas_para_comparacao(obra_id):
     except Error:
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
 def buscar_kits_vinculados_db(tarefa_id):
     """Busca os kits que já foram vinculados a uma tarefa específica."""
     conexao = conectar_mysql_leitura()
@@ -2702,10 +2721,18 @@ def render_planejamento_page():
 #region render_main_app
 
 def render_main_app():
-    # Roda os "agendadores" em cada carregamento de página
+    # Verifica se já rodamos as verificações nesta sessão
+    if 'verificacoes_rodaram' not in st.session_state:
+        st.session_state.verificacoes_rodaram = False
+
     if 'obra_selecionada_id' in st.session_state:
-        verificar_e_gerar_solicitacoes_db(st.session_state.obra_selecionada_id)
-        verificar_e_gerar_notificacoes_compra(st.session_state.obra_selecionada_id)
+        # Só roda SE ainda não rodou hoje/nesta sessão
+        if not st.session_state.verificacoes_rodaram:
+            with st.spinner("Atualizando notificações e tarefas..."): # Feedback visual
+                verificar_e_gerar_solicitacoes_db(st.session_state.obra_selecionada_id)
+                verificar_e_gerar_notificacoes_compra(st.session_state.obra_selecionada_id)
+            st.session_state.verificacoes_rodaram = True # Marca como feito
+
 
     with st.sidebar:
         st.markdown(f"**Usuário:** `{st.session_state.usuario_nome}`")
