@@ -1342,6 +1342,7 @@ def vincular_kit_a_tarefa_db(tarefa_id, kit_id, quantidade):
         conexao.commit()
         st.cache_resource.clear()
         if cursor.rowcount > 0:
+            st.session_state.verificacoes_rodaram = False
             return True, "Kit vinculado com sucesso!"
         else:
             return False, "Este kit já foi vinculado a esta tarefa."
@@ -1502,9 +1503,8 @@ def vincular_kit_a_multiplas_tarefas_db(lista_tarefa_ids, kit_id, quantidade):
         # Limpa os caches apenas se houve alguma alteração bem-sucedida
         if sucessos > 0:
             st.cache_resource.clear()
-            
-        if sucessos > 0:
-             mensagens.insert(0, f"{sucessos} kit(s) vinculados com sucesso!")
+            st.session_state.verificacoes_rodaram = False
+            mensagens.insert(0, f"{sucessos} kit(s) vinculados com sucesso!")
 
         return sucessos, mensagens
 
