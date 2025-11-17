@@ -2766,8 +2766,11 @@ def render_planejamento_page():
                     k = c1.selectbox("Kit", list(opcoes_kits.keys()), format_func=lambda x: opcoes_kits[x], key=f"k_{tarefa['id']}")
                     q = c2.number_input("Qtd", 1, key=f"q_{tarefa['id']}")
                     if st.form_submit_button("Vincular"):
-                        vincular_kit_a_tarefa_db(tarefa['id'], k, q)
-                        st.rerun()
+                        if k: # Verifica se o kit foi selecionado
+                            vincular_kit_a_tarefa_db(tarefa['id'], k, q)
+                            # Força a verificação IMEDIATA, independente do session_state
+                            verificar_e_gerar_solicitacoes_db(obra_id) 
+                            st.rerun()
 
 #endregion
 
