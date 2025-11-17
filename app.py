@@ -2539,12 +2539,14 @@ def render_planejamento_page():
                 st.error(relatorio, icon="🚨")
 
     st.markdown("---")
-    st.text("Verifique se a coluna 'Id_exclusiva' existe em seu MSProject antes de exportar para Excel.
-            Caso não, é simples. No MS Project:
-            1.  Clique com o botão direito no cabeçalho de qualquer coluna (ex: 'Nome da Tarefa').
-            2.  Selecione **'Inserir Coluna'**.
-            3.  Na lista de campos, escolha **'ID Exclusivo'** (o nome no Project é este, mas ele exporta como 'Id_exclusiva').
-            4.  Exporte o arquivo para Excel novamente.")")
+    st.info("""
+        **Atenção:** Verifique se a coluna 'Id_exclusiva' existe em seu MSProject antes de exportar para Excel.
+        Caso não, é simples. No MS Project:
+        1. Clique com o botão direito no cabeçalho de qualquer coluna (ex: 'Nome da Tarefa').
+        2. Selecione 'Inserir Coluna';
+        3. Na lista de campos, escolha 'ID Exclusivo' ou 'ID Exclusiva';
+        4. Exporte o arquivo para Excel novamente.
+        """)
     
     # --- SEÇÃO 2: VINCULAR KIT EM LOTE (NOVO LAYOUT) ---
     st.subheader("Vincular Kit a Múltiplas Tarefas (em Lote)")
