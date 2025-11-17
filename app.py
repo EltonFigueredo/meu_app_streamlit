@@ -1043,6 +1043,31 @@ def calcular_balanco_emprestimos_db(obra_id):
 
 #region Funções de Lógica de Negócio (Banco de Dados - Kits)
 
+def buscar_todos_vinculos_da_obra_db(obra_id):
+    """
+    Busca TODOS os vínculos de kits de uma obra em uma única consulta.
+    Otimizado para performance (evita chamar o banco dentro de loops).
+    """
+    # NÃO usamos cache aqui para ver as atualizações em tempo real sem limpar tudo
+    conexao = conectar_mysql_leitura() 
+    if not conexao: return pd.DataFrame()
+    
+    query = """
+        SELECT 
+            v.id, 
+            v.tarefa_id, 
+            k.nome, 
+            v.quantidade_kits
+        FROM tarefa_kits_vinculados v
+        JOIN kits k ON v.kit_id = k.id
+        JOIN planejamento_tarefas t ON v.tarefa_id = t.id
+        WHERE t.obra_id = %s
+    """
+    try:
+        return pd.read_sql(query, conexao, params=(obra_id,))
+    except Error:
+        return pd.DataFrame()
+
 @st.cache_data(ttl=60)
 def buscar_kits_da_obra_db(obra_id):
     """Busca todos os kits de uma obra específica."""
@@ -2190,6 +2215,9 @@ def render_kits_cadastrados_page():
     if 'operacao_concluida' not in st.session_state:
         st.session_state.operacao_concluida = None
 
+    # Controle de Paginação da Lista
+    if 'pag_lista_kits' not in st.session_state: st.session_state.pag_lista_kits = 0
+
     obra_id = st.session_state.obra_selecionada_id
     df_materiais_disponiveis = buscar_materiais_para_selecao() 
 
@@ -2227,12 +2255,38 @@ def render_kits_cadastrados_page():
         st.markdown("---")
 
         df_kits = buscar_kits_da_obra_db(obra_id)
+        
         if df_kits.empty:
             st.info("Nenhum kit cadastrado para esta obra.")
         else:
-            for _, kit in df_kits.iterrows():
+            # --- LÓGICA DE PAGINAÇÃO (AQUI ESTÁ A CORREÇÃO DE PERFORMANCE) ---
+            total_kits = len(df_kits)
+            itens_por_pagina = 10 # Mostra apenas 10 kits por vez
+            total_paginas = (total_kits + itens_por_pagina - 1) // itens_por_pagina
+            
+            # Controles de Paginação
+            c_pag1, c_pag2, c_pag3 = st.columns([1, 3, 1])
+            if c_pag1.button("⬅️ Anterior", key="btn_ant_kits", disabled=(st.session_state.pag_lista_kits == 0)):
+                st.session_state.pag_lista_kits -= 1
+                st.rerun()
+            
+            c_pag2.markdown(f"<div style='text-align: center'>Página {st.session_state.pag_lista_kits + 1} de {total_paginas}</div>", unsafe_allow_html=True)
+            
+            if c_pag3.button("Próximo ➡️", key="btn_prox_kits", disabled=(st.session_state.pag_lista_kits >= total_paginas - 1)):
+                st.session_state.pag_lista_kits += 1
+                st.rerun()
+
+            # Fatia o dataframe para processar APENAS os 10 kits da página atual
+            inicio = st.session_state.pag_lista_kits * itens_por_pagina
+            fim = inicio + itens_por_pagina
+            df_kits_pagina = df_kits.iloc[inicio:fim]
+
+            # Agora o loop roda no máximo 10 vezes, em vez de 50 ou 100
+            for _, kit in df_kits_pagina.iterrows():
                 with st.expander(f"**{kit['nome']}**"):
                     st.caption(kit['descricao'] or "Sem descrição.")
+                    
+                    # Esta consulta ao banco agora só acontece 10 vezes por carregamento de página
                     df_materiais_do_kit = buscar_materiais_de_um_kit_db(kit['id'])
                     st.dataframe(df_materiais_do_kit, use_container_width=True, hide_index=True)
                     
@@ -2526,10 +2580,16 @@ def render_planejamento_page():
     if 'filtro_tarefa_lote' not in st.session_state:
         st.session_state.filtro_tarefa_lote = ""
 
-    # --- Pré-busca de dados ---
+    # --- PRÉ-BUSCA INTELIGENTE (Traz tudo de uma vez) ---
+    # 1. Tarefas (vem do CACHE, super rápido)
     df_tarefas_all = buscar_tarefas_db(obra_id)
+    
+    # 2. Kits Disponíveis (vem do CACHE)
     df_kits_obra = buscar_kits_da_obra_db(obra_id)
     opcoes_kits = df_kits_obra.set_index('id')['nome'].to_dict()
+
+    # 3. Vínculos Já Feitos (NÃO TEM CACHE, busca atualizada em 1 query)
+    df_todos_vinculos = buscar_todos_vinculos_da_obra_db(obra_id)
 
     # --- SEÇÃO 1: UPLOAD DO ARQUIVO (código existente) ---
     st.subheader("Importar/Atualizar Planejamento (.xlsx)")
@@ -2665,45 +2725,49 @@ def render_planejamento_page():
     # --- SEÇÃO 3: VINCULAÇÃO INDIVIDUAL (código existente) ---
     st.subheader("Vincular Kits às Tarefas Individualmente")
 
-    if df_tarefas_all.empty:
-        st.info("Nenhuma tarefa de planejamento importada para esta obra ainda.")
-    elif df_kits_obra.empty:
-         st.warning("Não há kits cadastrados para esta obra.")
-    else:
-        # Itera sobre cada tarefa importada
-        for _, tarefa in df_tarefas_all.iterrows():
-            with st.expander(f"**Tarefa:** {tarefa['nome_tarefa']}  |  **Início Previsto:** {tarefa['data_inicio_fmt']}"):
-                # ... (o seu código para exibir kits vinculados e o form de vinculação individual continua aqui, sem alterações) ...
-                st.write("**Kits já vinculados:**")
-                df_vinculados = buscar_kits_vinculados_db(tarefa['id'])
-                if df_vinculados.empty:
-                    st.caption("Nenhum kit vinculado a esta tarefa ainda.")
+    if not df_tarefas_all.empty:
+        # Paginação Simples para não travar se tiver 1000 tarefas
+        total_tarefas = len(df_tarefas_all)
+        tamanho_pag = 20
+        if 'pag_plan' not in st.session_state: st.session_state.pag_plan = 0
+        
+        col_pag1, col_pag2 = st.columns([1, 5])
+        if col_pag1.button("Anterior") and st.session_state.pag_plan > 0: st.session_state.pag_plan -= 1; st.rerun()
+        if col_pag1.button("Próximo") and (st.session_state.pag_plan + 1) * tamanho_pag < total_tarefas: st.session_state.pag_plan += 1; st.rerun()
+        
+        inicio = st.session_state.pag_plan * tamanho_pag
+        fim = inicio + tamanho_pag
+        tarefas_pagina = df_tarefas_all.iloc[inicio:fim]
+        
+        col_pag2.caption(f"Mostrando tarefas {inicio+1} a {min(fim, total_tarefas)} de {total_tarefas}")
+
+        for _, tarefa in tarefas_pagina.iterrows():
+            with st.expander(f"**{tarefa['nome_tarefa']}** ({tarefa['data_inicio_fmt']})"):
+                
+                # --- FILTRAGEM EM MEMÓRIA (INSTANTÂNEA) ---
+                # Em vez de ir ao banco, filtramos o dataframe que já baixamos no início
+                if not df_todos_vinculos.empty:
+                    vinculos_desta_tarefa = df_todos_vinculos[df_todos_vinculos['tarefa_id'] == tarefa['id']]
                 else:
-                    for _, vinculo in df_vinculados.iterrows():
-                        col1, col2, col3 = st.columns([2, 1, 1])
-                        col1.info(f"Kit: {vinculo['nome']}")
-                        col2.info(f"Qtde: {vinculo['quantidade_kits']}")
-                        if col3.button("Remover", key=f"del_{vinculo['id']}", use_container_width=True):
-                            sucesso, msg = desvincular_kit_da_tarefa_db(vinculo['id'])
-                            if sucesso: st.success(msg)
-                            else: st.error(msg)
+                    vinculos_desta_tarefa = pd.DataFrame()
+
+                if not vinculos_desta_tarefa.empty:
+                    st.write("**Kits vinculados:**")
+                    for _, v in vinculos_desta_tarefa.iterrows():
+                        c1, c2 = st.columns([4, 1])
+                        c1.info(f"{v['quantidade_kits']}x {v['nome']}")
+                        if c2.button("Remover", key=f"rm_{v['id']}"):
+                            desvincular_kit_da_tarefa_db(v['id'])
                             st.rerun()
-                st.markdown("---")
-                with st.form(key=f"form_{tarefa['id']}"):
-                    st.write("**Adicionar novo kit a esta tarefa:**")
-                    cols = st.columns([3, 1])
-                    kit_id_selecionado = cols[0].selectbox(
-                        "Selecione o Kit", options=list(opcoes_kits.keys()),
-                        format_func=lambda x: opcoes_kits.get(x, "Kit Inválido"),
-                        label_visibility="collapsed"
-                    )
-                    quantidade = cols[1].number_input("Qtde.", min_value=1, step=1, value=1, label_visibility="collapsed")
-                    if st.form_submit_button("➕ Vincular Kit"):
-                        if kit_id_selecionado:
-                            sucesso, msg = vincular_kit_a_tarefa_db(tarefa['id'], kit_id_selecionado, quantidade)
-                            if sucesso: st.success(msg)
-                            else: st.warning(msg)
-                            st.rerun()
+                
+                # Formulário individual
+                with st.form(key=f"f_{tarefa['id']}"):
+                    c1, c2 = st.columns([3, 1])
+                    k = c1.selectbox("Kit", list(opcoes_kits.keys()), format_func=lambda x: opcoes_kits[x], key=f"k_{tarefa['id']}")
+                    q = c2.number_input("Qtd", 1, key=f"q_{tarefa['id']}")
+                    if st.form_submit_button("Vincular"):
+                        vincular_kit_a_tarefa_db(tarefa['id'], k, q)
+                        st.rerun()
 
 #endregion
 
