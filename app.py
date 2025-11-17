@@ -1140,7 +1140,7 @@ def ler_e_salvar_tarefas_excel(uploaded_file, obra_id):
         # --- 1. LEITURA E VALIDAÇÃO DO ARQUIVO EXCEL ---
         df_excel = pd.read_excel(uploaded_file, engine='openpyxl')
 
-        # Verificação inteligente que agora prioriza "Id_exclusiva"
+        # Verificação inteligente que prioriza "Id_exclusiva"
         unique_id_col = None
         if 'Id_exclusiva' in df_excel.columns:
             unique_id_col = 'Id_exclusiva'
@@ -1149,24 +1149,23 @@ def ler_e_salvar_tarefas_excel(uploaded_file, obra_id):
         elif 'Unique ID' in df_excel.columns:
             unique_id_col = 'Unique ID'
 
-        # Mensagem de erro atualizada para guiar o usuário corretamente
         if unique_id_col is None:
             mensagem_erro = """
             **ERRO: A coluna 'Id_exclusiva' não foi encontrada no arquivo Excel.**
 
             Para corrigir no MS Project:
-            1.  Clique com o botão direito no cabeçalho de qualquer coluna (ex: 'Nome da Tarefa').
+            1.  Clique com o botão direito no cabeçalho de qualquer coluna.
             2.  Selecione **'Inserir Coluna'**.
-            3.  Na lista de campos, escolha **'ID Exclusivo'** (o nome no Project é este, mas ele exporta como 'Id_exclusiva').
+            3.  Escolha **'ID Exclusivo'** (exporta como 'Id_exclusiva').
             4.  Exporte o arquivo para Excel novamente.
             """
             return False, mensagem_erro
 
-        # O resto da função continua como antes, usando a variável 'unique_id_col'
         colunas_necessarias = [unique_id_col, 'Nome', 'Início', 'Término']
         if not all(coluna in df_excel.columns for coluna in colunas_necessarias):
             return False, f"O arquivo Excel precisa conter as colunas: {', '.join(colunas_necessarias)}"
         
+        # --- 2. LIMPEZA E PREPARAÇÃO DOS DADOS DO EXCEL ---
         df_excel = df_excel[colunas_necessarias].copy()
         df_excel.dropna(subset=[unique_id_col, 'Nome', 'Início'], inplace=True)
         df_excel.rename(columns={
@@ -1176,22 +1175,40 @@ def ler_e_salvar_tarefas_excel(uploaded_file, obra_id):
             'Término': 'data_fim'
         }, inplace=True)
 
-        df_excel['data_inicio'] = pd.to_datetime(df_excel['data_inicio'].astype(str).apply(traduzir_data_pt_en)).dt.date
-        df_excel['data_fim'] = pd.to_datetime(df_excel['data_fim'].astype(str).apply(traduzir_data_pt_en), errors='coerce').dt.date
+        # --- 3. TRATAMENTO DE DATAS (CORRIGIDO) ---
+        # Adicionamos dayfirst=True e format='mixed' para evitar erros de inferência
+        df_excel['data_inicio'] = pd.to_datetime(
+            df_excel['data_inicio'].astype(str).apply(traduzir_data_pt_en), 
+            dayfirst=True, 
+            format='mixed', 
+            errors='coerce'
+        ).dt.date
+        
+        df_excel['data_fim'] = pd.to_datetime(
+            df_excel['data_fim'].astype(str).apply(traduzir_data_pt_en), 
+            dayfirst=True, 
+            format='mixed', 
+            errors='coerce'
+        ).dt.date
 
+        # --- 4. GARANTIR CONSISTÊNCIA DE TIPO PARA O MERGE ---
         df_db = buscar_tarefas_para_comparacao(obra_id)
         df_db['unique_id_mpp'] = df_db['unique_id_mpp'].astype(str)
         df_excel['unique_id_mpp'] = df_excel['unique_id_mpp'].astype(str)
+
+        # --- 5. COMPARAÇÃO COM OS DADOS DO BANCO ---
         df_merged = pd.merge(df_db, df_excel, on='unique_id_mpp', how='outer', suffixes=('_db', '_excel'), indicator=True)
 
         novas_tarefas = df_merged[df_merged['_merge'] == 'right_only']
         tarefas_removidas = df_merged[df_merged['_merge'] == 'left_only']
         tarefas_existentes = df_merged[df_merged['_merge'] == 'both']
+        
         tarefas_modificadas = tarefas_existentes[
             (tarefas_existentes['data_inicio_db'] != tarefas_existentes['data_inicio_excel']) |
             (tarefas_existentes['nome_tarefa_db'] != tarefas_existentes['nome_tarefa_excel'])
         ].copy()
 
+        # --- 6. EXECUÇÃO DAS OPERAÇÕES NO BANCO DE DADOS ---
         conexao = obter_conexao_para_transacao()
         if not conexao: return False, "Falha na conexão."
         cursor = conexao.cursor()
