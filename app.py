@@ -296,7 +296,6 @@ def cadastrar_material_db(codigo, nome, unidade, categoria, est_min, est_max, ob
         cursor.execute(comando, valores)
         conexao.commit()
         st.cache_resource.clear()
-        st.cache_data.clear()
         return True, f"Material '{nome}' cadastrado com sucesso!"
     except Error as e:
         conexao.rollback(); return False, f"Erro ao cadastrar: {e}"
@@ -314,7 +313,6 @@ def atualizar_material_db(mid, codigo, descricao, unidade, categoria, est_min, e
         cursor.execute(comando, valores)
         conexao.commit()
         st.cache_resource.clear()
-        st.cache_data.clear() 
         return True, f"Material '{descricao}' atualizado!"
     except Error as e:
         conexao.rollback(); return False, f"Erro ao atualizar: {e}"
@@ -340,7 +338,6 @@ def cadastrar_materiais_em_lote_db(df_materiais):
             erros += 1; conexao.rollback()
             mensagens_erro.append(f"Material Cód: {row['codigo']} - Erro: {e}")
     st.cache_resource.clear()
-    st.cache_data.clear()
     return sucessos, erros, mensagens_erro
 
 @st.cache_data(ttl=3600)
@@ -355,7 +352,6 @@ def excluir_materiais_db(lista_de_ids):
         cursor.execute(comando, tuple(lista_de_ids))
         conexao.commit()
         st.cache_resource.clear()
-        st.cache_data.clear()
         return True, f"{cursor.rowcount} material(is) excluído(s)!"
     except Error as e:
         conexao.rollback(); return False, f"Erro ao excluir: {e}"
@@ -1093,7 +1089,6 @@ def salvar_kit_completo_db(obra_id, nome, descricao, lista_materiais):
         conexao.commit()
         
         st.cache_resource.clear()
-        st.cache_data.clear()
         
         return True, f"Kit '{nome}' salvo com sucesso!"
     except Error as e:
@@ -1118,7 +1113,6 @@ def atualizar_kit_db(kit_id, nome, descricao, lista_materiais):
         conexao.commit()
 
         st.cache_resource.clear()
-        st.cache_data.clear()
         return True, f"Kit '{nome}' atualizado com sucesso!"
     except Error as e:
         conexao.rollback()
@@ -1136,7 +1130,6 @@ def excluir_kit_db(kit_id):
         conexao.commit()
 
         st.cache_resource.clear()
-        st.cache_data.clear()
 
         return True, "Kit excluído com sucesso."
     except Error as e:
@@ -1253,7 +1246,6 @@ def ler_e_salvar_tarefas_excel(uploaded_file, obra_id):
             
         conexao.commit()
         st.cache_resource.clear()
-        st.cache_data.clear()
 
         relatorio = {
             "adicionadas": novas_tarefas['nome_tarefa_excel'].tolist(),
@@ -1324,7 +1316,6 @@ def vincular_kit_a_tarefa_db(tarefa_id, kit_id, quantidade):
         cursor.execute(sql, (tarefa_id, kit_id, quantidade, tarefa_id, kit_id))
         conexao.commit()
         st.cache_resource.clear()
-        st.cache_data.clear()
         if cursor.rowcount > 0:
             return True, "Kit vinculado com sucesso!"
         else:
@@ -1345,7 +1336,6 @@ def desvincular_kit_da_tarefa_db(vinculo_id):
         cursor.execute(sql, (vinculo_id,))
         conexao.commit()
         st.cache_resource.clear()
-        st.cache_data.clear()
         return True, "Vínculo removido com sucesso."
     except Error as e:
         conexao.rollback()
@@ -1487,7 +1477,6 @@ def vincular_kit_a_multiplas_tarefas_db(lista_tarefa_ids, kit_id, quantidade):
         # Limpa os caches apenas se houve alguma alteração bem-sucedida
         if sucessos > 0:
             st.cache_resource.clear()
-            st.cache_data.clear()
             
         if sucessos > 0:
              mensagens.insert(0, f"{sucessos} kit(s) vinculados com sucesso!")
