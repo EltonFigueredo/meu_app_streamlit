@@ -36,6 +36,7 @@ def traduzir_data_pt_en(data_str):
 import os
 import tempfile
 
+
 # =====================================================================================
 # SEÇÃO DE CONFIGURAÇÃO E FUNÇÕES GLOBAIS
 # =====================================================================================
@@ -59,22 +60,38 @@ def _get_cached_connection():
 def conectar_mysql_leitura():
     """
     Tenta usar a conexão cacheada. Se ela caiu, recria.
-    Essa é a mágica para performance + estabilidade.
     """
     try:
         cnx = _get_cached_connection()
-        # Faz um teste leve (ping) para ver se a conexão ainda está viva
+        # Verifica se está conectada de forma leve
         if not cnx.is_connected():
-            st.cache_resource.clear() # Limpa o cache velho
-            cnx = _get_cached_connection() # Cria nova
+            st.cache_resource.clear()
+            cnx = _get_cached_connection()
             
-        # Um teste extra garantido (ping do MySQL)
-        cnx.ping(reconnect=True, attempts=3, delay=1)
+        # REMOVIDO O PING FORÇADO AGRESSIVO QUE CAUSA LENTIDÃO
         return cnx
     except Error:
-        # Se der erro grave, força limpeza total e nova tentativa
         st.cache_resource.clear()
         return _get_cached_connection()
+
+@st.cache_data(ttl=600) # Cache de 10 minutos para a lista de obras
+def buscar_obras_do_usuario_db(usuario_id):
+    # Usa a conexão CACHEADA (rápida), não a de transação
+    conexao = conectar_mysql_leitura()
+    if not conexao: return pd.DataFrame()
+    
+    query = """
+        SELECT o.id, o.nome_obra 
+        FROM obras o 
+        JOIN usuario_obras_acesso uoa ON o.id = uoa.obra_id 
+        WHERE uoa.usuario_id = %s 
+        ORDER BY o.nome_obra
+    """
+    try:
+        return pd.read_sql(query, conexao, params=(usuario_id,))
+    except Error as e:
+        st.error(f"Erro ao carregar obras: {e}")
+        return pd.DataFrame()
 
 # A função de escrita continua criando uma nova por segurança, 
 # mas como é usada menos vezes, não impacta tanto a navegação.
@@ -622,6 +639,7 @@ def verificar_e_gerar_notificacoes_compra(obra_id, antecedencia_seguranca_dias=6
             """
             cursor.executemany(sql_insert, notificacoes_para_criar)
             conexao.commit()
+            st.cache_data.clear()
             print(f"INFO: {len(notificacoes_para_criar)} nova(s) notificação(ões) de compra criada(s).")
 
     except Error as e:
@@ -1043,6 +1061,7 @@ def calcular_balanco_emprestimos_db(obra_id):
 
 #region Funções de Lógica de Negócio (Banco de Dados - Kits)
 
+@st.cache_data(ttl=60)
 def buscar_todos_vinculos_da_obra_db(obra_id):
     """
     Busca TODOS os vínculos de kits de uma obra em uma única consulta.
@@ -1080,6 +1099,7 @@ def buscar_kits_da_obra_db(obra_id):
         st.error(f"Erro ao buscar kits: {e}")
         return pd.DataFrame()
 
+@st.cache_data(ttl=300)
 def buscar_materiais_de_um_kit_db(kit_id):
     """Busca os materiais de um kit específico (não precisa de obra_id pois kit_id é único)."""
     conexao = conectar_mysql_leitura()
@@ -2793,21 +2813,7 @@ def render_main_app():
     with st.sidebar:
         st.markdown(f"**Usuário:** `{st.session_state.usuario_nome}`")
 
-        conexao_obras = obter_conexao_para_transacao()
-        obras_df = pd.DataFrame()
-        if conexao_obras and conexao_obras.is_connected():
-            try:
-                obras_df = pd.read_sql(
-                    "SELECT o.id, o.nome_obra FROM obras o JOIN usuario_obras_acesso uoa ON o.id = uoa.obra_id WHERE uoa.usuario_id = %s ORDER BY o.nome_obra",
-                    conexao_obras,
-                    params=(st.session_state.usuario_id,)
-                )
-            except Error as e:
-                st.sidebar.error(f"Não foi possível carregar as obras: {e}")
-            finally:
-                if conexao_obras.is_connected(): conexao_obras.close()
-        else:
-            st.sidebar.error("Falha na conexão para carregar obras.")
+        obras_df = buscar_obras_do_usuario_db(st.session_state.usuario_id)
 
         if not obras_df.empty:
             obra_selecionada_nome = st.selectbox("Selecione a Obra:", options=obras_df['nome_obra'].tolist(), key='obra_selectbox')
@@ -2834,6 +2840,14 @@ def render_main_app():
         if opcao == "INÍCIO":
             st.title(f"Bem-vindo à Obra: {st.session_state.get('obra_selectbox', '')}")
             st.markdown("---")
+
+            if st.button("🔄 Atualizar Notificações (Forçar)", type="primary"):
+                st.cache_data.clear()
+                # Chama as funções de verificação usando o ID da obra que já está na sessão
+                verificar_e_gerar_notificacoes_compra(st.session_state.obra_selecionada_id)
+                verificar_e_gerar_solicitacoes_db(st.session_state.obra_selecionada_id)
+                st.success("Verificação concluída!")
+                st.rerun()
 
             # >>> ADICIONADO: USO DE TABS PARA NOTIFICAÇÕES <<<
             tab_pendentes, tab_solicitadas = st.tabs(["🔔 Compras Pendentes", "📜 Compras Solicitadas (Histórico)"])
