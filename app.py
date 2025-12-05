@@ -2842,9 +2842,9 @@ def render_main_app():
             with col_title:
                 st.title(f"Bem-vindo à Obra: {st.session_state.get('obra_selectbox', '')}")
                 st.markdown("---")
-                
+
             with col_button:
-                if st.button("🔄 Atualizar Notificações (Forçar)", type="primary"):
+                if st.button("🔄 Atualizar Notificações", type="primary"):
                     st.cache_data.clear()
                     # Chama as funções de verificação usando o ID da obra que já está na sessão
                     verificar_e_gerar_notificacoes_compra(st.session_state.obra_selecionada_id)
