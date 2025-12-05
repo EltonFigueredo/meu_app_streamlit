@@ -2838,16 +2838,19 @@ def render_main_app():
         obra_id = st.session_state.obra_selecionada_id
 
         if opcao == "INÍCIO":
-            st.title(f"Bem-vindo à Obra: {st.session_state.get('obra_selectbox', '')}")
-            st.markdown("---")
-
-            if st.button("🔄 Atualizar Notificações (Forçar)", type="primary"):
-                st.cache_data.clear()
-                # Chama as funções de verificação usando o ID da obra que já está na sessão
-                verificar_e_gerar_notificacoes_compra(st.session_state.obra_selecionada_id)
-                verificar_e_gerar_solicitacoes_db(st.session_state.obra_selecionada_id)
-                st.success("Verificação concluída!")
-                st.rerun()
+            col_title, col_button = st.columns([4,1])
+            with col_title:
+                st.title(f"Bem-vindo à Obra: {st.session_state.get('obra_selectbox', '')}")
+                st.markdown("---")
+                
+            with col_button:
+                if st.button("🔄 Atualizar Notificações (Forçar)", type="primary"):
+                    st.cache_data.clear()
+                    # Chama as funções de verificação usando o ID da obra que já está na sessão
+                    verificar_e_gerar_notificacoes_compra(st.session_state.obra_selecionada_id)
+                    verificar_e_gerar_solicitacoes_db(st.session_state.obra_selecionada_id)
+                    st.success("Verificação concluída!")
+                    st.rerun()
 
             # >>> ADICIONADO: USO DE TABS PARA NOTIFICAÇÕES <<<
             tab_pendentes, tab_solicitadas = st.tabs(["🔔 Compras Pendentes", "📜 Compras Solicitadas (Histórico)"])
